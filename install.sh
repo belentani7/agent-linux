@@ -10,6 +10,12 @@ export DEBIAN_FRONTEND=noninteractive
 log() { printf '\n\033[1;36m[agent-linux]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
+if apt-cache show chromium >/dev/null 2>&1; then
+  BROWSER_PACKAGES=(chromium chromium-driver)
+else
+  BROWSER_PACKAGES=(chromium-browser chromium-driver)
+fi
+
 [[ "$EUID" -ne 0 ]] || fail "Ejecuta como usuario normal, no con sudo."
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || fail "Este instalador requiere Ubuntu."
@@ -22,7 +28,7 @@ sudo apt-get install -y --no-install-recommends \
   git git-lfs gh openssh-client gpg build-essential pkg-config libssl-dev \
   zsh tmux vim nano jq yq ripgrep fd-find fzf bat tree unzip zip rsync shellcheck \
   python3 python3-pip python3-venv python-is-python3 \
-  chromium-browser chromium-driver \
+  "${BROWSER_PACKAGES[@]}" \
   fonts-liberation fonts-noto-color-emoji xdg-utils
 
 git lfs install --skip-repo

@@ -1,0 +1,20 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_ed25519*
+config/mcp.json
+
+# Build and local state
+node_modules/
+.pnpm-store/
+dist/
+.cache/
+.playwright/
+.DS_Store
+
+# OpenClaw / local AI state
+.openclaw/
+.claude/settings.local.json

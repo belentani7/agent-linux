@@ -1,0 +1,22 @@
+{
+  "name": "Agent Linux",
+  "build": { "dockerfile": "../Dockerfile", "context": ".." },
+  "remoteUser": "root",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace",
+  "forwardPorts": [18789],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode-remote.remote-containers",
+        "anthropic.claude-code",
+        "ms-vscode.powershell",
+        "eamodio.gitlens",
+        "redhat.vscode-yaml",
+        "davidanson.vscode-markdownlint"
+      ],
+      "settings": { "terminal.integrated.defaultProfile.linux": "bash" }
+    }
+  },
+  "postCreateCommand": "git config --global init.defaultBranch main || true"
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -u
+printf 'Agent Linux\n\n'
+printf 'Workspace: %s\n' "${PWD}"
+printf 'Git:      '; git rev-parse --show-toplevel 2>/dev/null || printf 'no es un repo\n'
+printf 'GitHub:   '; gh auth status 2>&1 | sed -n '1p'
+printf 'Claude:   '; claude --version 2>/dev/null || printf 'no instalado\n'
+printf 'OpenClaw: '; openclaw --version 2>/dev/null || printf 'no instalado\n'
+printf 'PowerShell:'; pwsh --version 2>/dev/null || printf ' no instalado\n'

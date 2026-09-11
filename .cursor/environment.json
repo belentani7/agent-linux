@@ -1,0 +1,5 @@
+{
+  "name": "Agent Linux",
+  "user": "ubuntu",
+  "install": "bash install.sh"
+}

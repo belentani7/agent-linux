@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+APT_OPTS=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Acquire::Retries=3)
 sudo apt-get update
-sudo apt-get full-upgrade -y
+sudo apt-get full-upgrade -y "${APT_OPTS[@]}"
 if command -v mise >/dev/null 2>&1; then
   mise upgrade || true
 fi

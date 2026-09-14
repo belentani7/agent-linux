@@ -18,3 +18,12 @@ dist/
 # OpenClaw / local AI state
 .openclaw/
 .claude/settings.local.json
+
+# remediacion 2026-09-14
+node_modules/
+.env
+.env.*
+.mimosa/
+__pycache__/
+.vercel/
+*.log

@@ -12,7 +12,7 @@ RUN wget -q https://packages.microsoft.com/config/ubuntu/26.04/packages-microsof
 RUN curl https://mise.run | sh
 ENV PATH=/root/.local/bin:/root/.local/share/mise/installs/node/lts/bin:$PATH
 RUN mise settings set experimental true && mise use --global node@lts && corepack enable \
-  && npm install -g playwright pnpm typescript tsx prettier eslint
+  && npm install -g playwright typescript tsx prettier eslint
 RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
 WORKDIR /workspace

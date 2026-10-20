@@ -20,7 +20,7 @@ Agent Linux se construye sobre **Ubuntu 26.04 LTS** y reúne un entorno listo pa
 ### Instalación en Ubuntu 24.04/26.04
 
 ```bash
-git clone https://github.com/USUARIO/agent-linux.git
+git clone https://github.com/belentani7/agent-linux.git
 cd agent-linux
 bash install.sh
 ```

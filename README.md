@@ -17,26 +17,26 @@ Agent Linux se construye sobre **Ubuntu 26.04 LTS** y reúne un entorno listo pa
 
 ## Contenedor sin root · producto reproducible
 
-El Dockerfile mantiene un **núcleo ejecutable de desarrollo** con Python, Node/npm, Git, GitHub CLI y herramientas de terminal. La imagen se ejecuta como usuario sin privilegios (UID 10001), sin credenciales incorporadas ni instalación silenciosa de agentes externos. No necesita una página web: es una herramienta de infraestructura.
+El archivo opcional `Dockerfile.rootless` ofrece un **núcleo ejecutable de desarrollo** con Python, Node/npm, Git, GitHub CLI y herramientas de terminal. La imagen se ejecuta como usuario sin privilegios (UID 10001), sin credenciales incorporadas ni instalación silenciosa de agentes externos. No necesita una página web: es una herramienta de infraestructura.
 
-La imagen **no incluye** Claude Code, OpenClaw, PowerShell, Go, Rust ni los binarios de Playwright. Se instalan opcionalmente mediante el entorno del usuario, no durante el build. Consulta [la guía de contenedor](docs/CONTAINER.md).
+La imagen rootless **no incluye** Claude Code, OpenClaw, PowerShell, Go, Rust ni los binarios de Playwright. Se instalan opcionalmente mediante el entorno del usuario, no durante el build. Consulta [la guía de contenedor](docs/CONTAINER.md).
 
 Para verificar desde la raíz del repositorio:
 
 ```bash
-docker build --pull -t agent-linux:dev .
+docker build --pull -f Dockerfile.rootless -t agent-linux:dev .
 docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges agent-linux:dev bash /dev/stdin < scripts/container-smoke.sh
 docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges agent-linux:dev bash /dev/stdin --strict < scripts/doctor.sh
 ```
 
-Un resultado local válido es distinto de una compilación CI verificada o una instalación continua. El instalador de Ubuntu que aparece más abajo es un camino independiente para un equipo del usuario.
+Un resultado local válido es distinto de una compilación CI verificada o una instalación continua. El Dockerfile completo existente y su Dev Container se mantienen intactos. Quien prefiera un contenedor mínimo y sin root puede seleccionar `.devcontainer/rootless/`.
 
 ## Inicio rápido
 
 ### Instalación en Ubuntu 24.04/26.04
 
 ```bash
-git clone https://github.com/USUARIO/agent-linux.git
+git clone https://github.com/belentani7/agent-linux.git
 cd agent-linux
 bash install.sh
 ```
@@ -88,6 +88,18 @@ npx playwright install chromium
 `config/mcp.example.json` es una plantilla sin secretos. Copia únicamente los servidores que quieras usar a la configuración de tu cliente MCP y proporciona sus credenciales mediante variables de entorno o el gestor de secretos del cliente.
 
 `skills/` contiene skills locales pequeñas y auditables. Para usar una skill en Claude Code, copia o enlaza la carpeta a `.claude/skills/` dentro del repositorio que estés editando. No se instalan skills de terceros automáticamente: la selección y auditoría de cada skill evita ejecutar código no confiable.
+
+## Ejecución autónoma limitada (repositorios existentes)
+
+Se añadió un **controlador local verificable**, no una promesa de programación automática ilimitada. Puede programar la ejecución de workflows GitHub *ya existentes* con una lista autorizada, presupuesto de llamadas y temporizador systemd de usuario. Permanece desactivado por defecto. No fusiona PR, publica versiones ni inventa proyectos. Consulta [la guía de operación](docs/PORTFOLIO_RUNNER.md) para configuración, pruebas y activación explícita.
+
+```bash
+python3 -m unittest discover -s tests -p 'test_portfolio_runner.py' -v
+python3 scripts/portfolio_runner.py --validate --config config/portfolio.example.json
+bash scripts/install-user-timer.sh --install-dry-run  # sólo simulación
+# Tras verificar el workflow existente y habilitar expresamente su ejecución:
+# bash scripts/install-user-timer.sh --enable-dispatch
+```
 
 ## Seguridad
 

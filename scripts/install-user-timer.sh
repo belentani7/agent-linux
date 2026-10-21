@@ -7,17 +7,17 @@ usage() {
   echo "  --enable-dispatch  Explicitly dispatch existing allowlisted CI workflows"
   echo "  --disable          Stop the user timer (preserve config and reports)"
 }
-action="\${1:-}"
+action="${1:-}"
 if [[ ! "$action" =~ ^(--install-dry-run|--enable-dispatch|--disable|--status)$ ]]; then usage >&2; exit 2; fi
 command -v systemctl >/dev/null || { echo "systemd user service not available" >&2; exit 2; }
 if [[ "$EUID" -eq 0 ]]; then echo "Do not use sudo or root" >&2; exit 2; fi
 if [[ "$action" == "--status" ]]; then systemctl --user status agent-linux-portfolio.timer --no-pager; exit $?; fi
 if [[ "$action" == "--disable" ]]; then systemctl --user disable --now agent-linux-portfolio.timer; exit $?; fi
-root="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")/.." && pwd)"
-app="\${HOME}/.local/share/agent-linux"
-conf="\${HOME}/.config/agent-linux"
-reports="\${HOME}/.local/state/agent-linux"
-units="\${HOME}/.config/systemd/user"
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+app="${HOME}/.local/share/agent-linux"
+conf="${HOME}/.config/agent-linux"
+reports="${HOME}/.local/state/agent-linux"
+units="${HOME}/.config/systemd/user"
 install -d -m 0700 "$app" "$conf" "$reports" "$units"
 install -m 0755 "$root/scripts/portfolio_runner.py" "$app/portfolio_runner.py"
 if [[ ! -f "$conf/portfolio.json" ]]; then

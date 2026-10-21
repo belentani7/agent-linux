@@ -20,7 +20,7 @@ Agent Linux se construye sobre **Ubuntu 26.04 LTS** y reúne un entorno listo pa
 ### Instalación en Ubuntu 24.04/26.04
 
 ```bash
-git clone https://github.com/USUARIO/agent-linux.git
+git clone https://github.com/belentani7/agent-linux.git
 cd agent-linux
 bash install.sh
 ```
@@ -72,6 +72,18 @@ npx playwright install chromium
 `config/mcp.example.json` es una plantilla sin secretos. Copia únicamente los servidores que quieras usar a la configuración de tu cliente MCP y proporciona sus credenciales mediante variables de entorno o el gestor de secretos del cliente.
 
 `skills/` contiene skills locales pequeñas y auditables. Para usar una skill en Claude Code, copia o enlaza la carpeta a `.claude/skills/` dentro del repositorio que estés editando. No se instalan skills de terceros automáticamente: la selección y auditoría de cada skill evita ejecutar código no confiable.
+
+## Ejecución autónoma limitada (repositorios existentes)
+
+Se añadió un **controlador local verificable**, no una promesa de programación automática ilimitada. Puede programar la ejecución de workflows GitHub *ya existentes* con una lista autorizada, presupuesto de llamadas y temporizador systemd de usuario. Permanece desactivado por defecto. No fusiona PR, publica versiones ni inventa proyectos. Consulta [la guía de operación](docs/PORTFOLIO_RUNNER.md) para configuración, pruebas y activación explícita.
+
+```bash
+python3 -m unittest discover -s tests -p 'test_portfolio_runner.py' -v
+python3 scripts/portfolio_runner.py --validate --config config/portfolio.example.json
+bash scripts/install-user-timer.sh --install-dry-run  # sólo simulación
+# Tras verificar el workflow existente y habilitar expresamente su ejecución:
+# bash scripts/install-user-timer.sh --enable-dispatch
+```
 
 ## Seguridad
 

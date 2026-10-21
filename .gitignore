@@ -27,3 +27,8 @@ node_modules/
 __pycache__/
 .vercel/
 *.log
+
+# Private portfolio runner output and allowlist
+config/portfolio.json
+reports/
+*.pyc

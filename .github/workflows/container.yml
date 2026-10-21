@@ -28,6 +28,6 @@ jobs:
         run: docker build --pull -t agent-linux:ci .
       - name: Run nonroot image without network
         run: |
-          docker run --rm --network none --read-only --cap-drop ALL \
+          docker run --rm -i --network none --read-only --cap-drop ALL \
             --security-opt no-new-privileges agent-linux:ci \
             bash -c 'cd /workspace && bash /dev/stdin' < scripts/container-smoke.sh

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Callable, Sequence
 
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -24,6 +25,7 @@ MAX_REPOS = 50
 MAX_DISPATCHES = 5
 CONFIG_MAX_BYTES = 200_000
 DEFAULT_TIMEOUT = 25
+MAX_RUNTIME_SECONDS = 600
 
 
 class ConfigurationError(ValueError):
@@ -50,7 +52,7 @@ def validate(config: object) -> dict:
         if not isinstance(row, dict) or set(row) != {"repository", "workflow", "ref"}:
             raise ConfigurationError(f"Entry {index}: require repository, workflow and ref only")
         repo, workflow, ref = (row["repository"], row["workflow"], row["ref"])
-        if not isinstance(repo, str) or not REPO.fullmatch(repo):
+        if not isinstance(repo, str) or not REPO.fullmatch(repo) or any(part in (".", "..") for part in repo.split("/")):
             raise ConfigurationError(f"Entry {index}: invalid repository slug")
         if not isinstance(workflow, str) or not WORKFLOW.fullmatch(workflow):
             raise ConfigurationError(f"Entry {index}: workflow must be a .yml/.yaml filename")
@@ -92,10 +94,13 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command) ->
     entries = []
     eligible = config["enabled"] and execute
     dispatched = 0
+    deadline = time.monotonic() + MAX_RUNTIME_SECONDS
     for item in config["repositories"]:
         repo, workflow, ref = (item["repository"], item["workflow"], item["ref"])
         report = {"repository": repo, "workflow": workflow, "ref": ref}
-        if not config["enabled"]:
+        if time.monotonic() >= deadline:
+            report["status"] = "time_budget_exhausted"
+        elif not config["enabled"]:
             report["status"] = "disabled"
         elif not execute:
             report["status"] = "dry_run"

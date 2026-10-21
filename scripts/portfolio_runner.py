@@ -18,7 +18,7 @@ import sys
 import time
 from typing import Callable, Sequence
 
-REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+REPO = re.compile(r"^(?![-.])[A-Za-z0-9_.-]+/(?![-.])[A-Za-z0-9_.-]+$")
 WORKFLOW = re.compile(r"^[A-Za-z0-9_.-]+\.ya?ml$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,120}$")
 MAX_REPOS = 50

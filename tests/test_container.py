@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ContainerGuards(unittest.TestCase):
     def test_dockerfile_nonroot_and_no_remote_install_pipe(self):
-        src = (ROOT / "Dockerfile").read_text()
+        src = (ROOT / "Dockerfile.rootless").read_text()
         self.assertIn("FROM ubuntu:26.04", src)
         self.assertIn("USER agent:agent", src)
         self.assertIn('ENTRYPOINT ["/usr/bin/tini", "--"]', src)
@@ -15,7 +15,7 @@ class ContainerGuards(unittest.TestCase):
         self.assertNotIn("| sh", src)
 
     def test_devcontainer_user_and_capabilities(self):
-        cfg = json.loads((ROOT / ".devcontainer/devcontainer.json").read_text())
+        cfg = json.loads((ROOT / ".devcontainer/rootless/devcontainer.json").read_text())
         self.assertEqual("agent", cfg["remoteUser"])
         self.assertEqual("agent", cfg["containerUser"])
         self.assertIn("--cap-drop=ALL", cfg["runArgs"])

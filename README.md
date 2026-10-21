@@ -15,6 +15,22 @@ Agent Linux se construye sobre **Ubuntu 26.04 LTS** y reúne un entorno listo pa
 
 > **Importante:** esto es una capa de desarrollo reproducible sobre Ubuntu; no reemplaza la imagen oficial de Ubuntu ni pretende redistribuir sus binarios. Las credenciales de GitHub, Anthropic, OpenClaw y MCP se configuran localmente y nunca se almacenan en el repositorio.
 
+## Contenedor sin root · producto reproducible
+
+El Dockerfile mantiene un **núcleo ejecutable de desarrollo** con Python, Node/npm, Git, GitHub CLI y herramientas de terminal. La imagen se ejecuta como usuario sin privilegios (UID 10001), sin credenciales incorporadas ni instalación silenciosa de agentes externos. No necesita una página web: es una herramienta de infraestructura.
+
+La imagen **no incluye** Claude Code, OpenClaw, PowerShell, Go, Rust ni los binarios de Playwright. Se instalan opcionalmente mediante el entorno del usuario, no durante el build. Consulta [la guía de contenedor](docs/CONTAINER.md).
+
+Para verificar desde la raíz del repositorio:
+
+```bash
+docker build --pull -t agent-linux:dev .
+docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges agent-linux:dev bash /dev/stdin < scripts/container-smoke.sh
+docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges agent-linux:dev bash /dev/stdin --strict < scripts/doctor.sh
+```
+
+Un resultado local válido es distinto de una compilación CI verificada o una instalación continua. El instalador de Ubuntu que aparece más abajo es un camino independiente para un equipo del usuario.
+
 ## Inicio rápido
 
 ### Instalación en Ubuntu 24.04/26.04

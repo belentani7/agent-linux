@@ -2,8 +2,8 @@ name: Agent Linux rootless container
 on:
   pull_request:
     paths:
-      - Dockerfile
-      - .devcontainer/**
+      - Dockerfile.rootless
+      - .devcontainer/rootless/**
       - scripts/container-smoke.sh
       - tests/test_container.py
       - .github/workflows/container.yml
@@ -26,7 +26,7 @@ jobs:
           bash -n scripts/container-smoke.sh
           bash -n scripts/doctor.sh
       - name: Build image
-        run: docker build --pull -t agent-linux:ci .
+        run: docker build --pull -f Dockerfile.rootless -t agent-linux:ci .
       - name: Run nonroot image without network
         run: |
           docker run --rm -i --network none --read-only --cap-drop ALL \

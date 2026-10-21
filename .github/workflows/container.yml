@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_container.py' -v
           bash -n scripts/container-smoke.sh
+          bash -n scripts/doctor.sh
       - name: Build image
         run: docker build --pull -t agent-linux:ci .
       - name: Run nonroot image without network
@@ -31,3 +32,9 @@ jobs:
           docker run --rm -i --network none --read-only --cap-drop ALL \
             --security-opt no-new-privileges agent-linux:ci \
             bash -c 'cd /workspace && bash /dev/stdin' < scripts/container-smoke.sh
+
+      - name: Strict runtime doctor
+        run: |
+          docker run --rm -i --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges agent-linux:ci \
+            bash /dev/stdin --strict < scripts/doctor.sh

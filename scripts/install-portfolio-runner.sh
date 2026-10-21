@@ -7,7 +7,7 @@ fi
 base="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin_dir="${HOME}/.local/bin"
 unit_dir="${HOME}/.config/systemd/user"
-mkdir -p "${bin_dir}" "${unit_dir}" "${HOME}/.config/belentani"
+mkdir -p "${bin_dir}" "${unit_dir}" "${HOME}/.config/belentani" "${HOME}/.local/share/belentani-portfolio"
 install -m 0755 "${base}/scripts/portfolio-cycle.sh" "${bin_dir}/belentani-portfolio-cycle"
 install -m 0644 "${base}/systemd/belentani-portfolio.service" "${unit_dir}/belentani-portfolio.service"
 install -m 0644 "${base}/systemd/belentani-portfolio.timer" "${unit_dir}/belentani-portfolio.timer"

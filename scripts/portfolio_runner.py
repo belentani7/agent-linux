@@ -101,11 +101,9 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command) ->
             report["status"] = "dry_run"
         elif dispatched >= config["max_dispatches"]:
             report["status"] = "budget_exhausted"
-        elif not call_gh(["api", f"repos/{repo}", "--jq", ".archived"], runner):
-            report["status"] = "repo_unavailable"
         else:
-            # gh api --jq's stdout is not logged. Re-check archived with a
-            # bounded API response so archived repos are never dispatched.
+            # Check repository archive state before invoking anything. Nothing
+            # about the response, token, or private repository is logged.
             try:
                 info = runner(["gh", "api", f"repos/{repo}", "--jq", ".archived"])
                 is_archived = info.returncode != 0 or info.stdout.strip() != "false"

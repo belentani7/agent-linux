@@ -48,7 +48,7 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 TimeoutStartSec=12min
-ExecStart=/usr/bin/python3 %h/.local/share/agent-linux/portfolio_runner.py --config %h/.config/agent-linux/portfolio.json --output %h/.local/state/agent-linux/report.json$args
+ExecStart=/usr/bin/python3 %h/.local/share/agent-linux/portfolio_runner.py --config %h/.config/agent-linux/portfolio.json --output %h/.local/state/agent-linux/report.json --state %h/.local/state/agent-linux/rotation.json$args
 UNIT
 cat > "$units/agent-linux-portfolio.timer" <<'UNIT'
 [Unit]

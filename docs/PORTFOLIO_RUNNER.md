@@ -6,6 +6,7 @@ The runner safely **verifies and dispatches existing GitHub workflows**. It does
 
 - Disabled by default. Empty allowlist in `config/portfolio.example.json`.
 - Strict JSON schema (v1); at most 50 targets, at most 5 dispatches per invocation, all target identifiers validated.
+- Persistent round-robin cursor prevents the first few allowlisted repositories from monopolizing each run. The private state file resets safely when the allowlist changes.
 - Repository archive state and selected workflow are verified via GitHub CLI before dispatch.
 - No scripts fetched and executed, no `shell=True`, no PR merging, no cloning, no force pushing, no repo creation, no permission or visibility changes.
 - Never stores or prints tokens. Reports live on the user's machine with mode `0600`. Keep `reports/` untracked.
@@ -46,7 +47,7 @@ gh auth login
 python3 scripts/portfolio_runner.py --execute --config config/portfolio.json
 ```
 
-Each execution has bounded work. Validate status separately with `gh run list --repo OWNER/REPO` and inspect the exact workflow run and deployed URL. Never infer success from a dispatch response.
+Each execution has bounded work. With multiple targets and a small per-run budget, the successful dispatch cursor rotates between subsequent executions. By default it is stored in `reports/portfolio-state.json`; the systemd timer stores it in `~/.local/state/agent-linux/rotation.json`. Dry runs neither consult nor modify the cursor. Validate status separately with `gh run list --repo OWNER/REPO` and inspect the exact workflow run and deployed URL. Never infer success from a dispatch response.
 
 ## 3. Optional Linux user timer
 

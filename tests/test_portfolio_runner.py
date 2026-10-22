@@ -81,6 +81,60 @@ class PortfolioRunnerTests(unittest.TestCase):
         self.assertEqual(len(dispatches), 2)
         self.assertTrue(all(x[0] == "gh" and x[-2:] == ["--ref", "main"] for x in dispatches))
 
+    def test_large_allowlist_cycling_across_runs_without_duplicate_first_batch(self):
+        rows = [
+            {"repository": f"example/real-{i}", "workflow": "ci.yml", "ref": "main"}
+            for i in range(490)
+        ]
+        config = runner.validate(valid(repositories=rows, max_dispatches=5))
+        self.assertEqual(len(config["repositories"]), 490)
+        calls = []
+        def fake(argv):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "false\n", "")
+        first = runner.dispatch(config, execute=True, runner=fake)
+        second = runner.dispatch(config, execute=True, runner=fake, start_index=first["cursor_after"])
+        self.assertEqual(first["dispatches"], 5)
+        self.assertEqual(second["dispatches"], 5)
+        self.assertEqual(first["examined"], 5)
+        self.assertEqual(first["cursor_after"], 5)
+        self.assertEqual(second["cursor_after"], 10)
+        first_visited = [item["repository"] for item in first["results"] if item["status"] == "dispatched_unverified"]
+        second_visited = [item["repository"] for item in second["results"] if item["status"] == "dispatched_unverified"]
+        self.assertEqual(first_visited, [f"example/real-{i}" for i in range(5)])
+        self.assertEqual(second_visited, [f"example/real-{i}" for i in range(5, 10)])
+
+    def test_probe_budget_skips_unavailable_repos_with_finite_calls(self):
+        rows = [
+            {"repository": f"example/archived-{i}", "workflow": "ci.yml", "ref": "main"}
+            for i in range(40)
+        ]
+        config = runner.validate(valid(repositories=rows, max_dispatches=5))
+        calls = []
+        def unavailable(argv):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "true\n", "")
+        result = runner.dispatch(config, execute=True, runner=unavailable)
+        self.assertEqual(result["dispatches"], 0)
+        self.assertEqual(result["examined"], runner.MAX_PROBES)
+        self.assertEqual(result["cursor_after"], runner.MAX_PROBES)
+        self.assertEqual(len(calls), runner.MAX_PROBES)
+        self.assertEqual(result["results"][runner.MAX_PROBES]["status"], "probe_budget_exhausted")
+
+    def test_cursor_rejects_changed_allowlist_and_corrupt_state(self):
+        config = runner.validate(valid())
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "cursor.json"
+            runner.write_report(path, {
+                "fingerprint": runner.config_fingerprint(config), "next_index": 0,
+            })
+            self.assertEqual(runner.read_cursor(path, config), 0)
+            changed = runner.validate(valid(repositories=[
+                {**valid()["repositories"][0], "repository": "example/another"}]))
+            self.assertEqual(runner.read_cursor(path, changed), 0)
+            path.write_text("broken", encoding="utf-8")
+            self.assertEqual(runner.read_cursor(path, config), 0)
+
     def test_no_dispatch_for_archived_repository(self):
         calls = []
         def fake(argv):

@@ -17,8 +17,8 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python sources
-        run: python -m compileall -q scripts/portfolio_runner.py tests/test_portfolio_runner.py
+        run: python -m compileall -q scripts/portfolio_runner.py scripts/portfolio_discover.py tests/test_portfolio_runner.py tests/test_portfolio_discover.py
       - name: Offline unit tests
-        run: python -m unittest discover -s tests -p 'test_portfolio_runner.py' -v
+        run: python -m unittest discover -s tests -p 'test_portfolio_*.py' -v
       - name: Reject unsafe configuration
         run: python scripts/portfolio_runner.py --validate --config config/portfolio.example.json

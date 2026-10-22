@@ -106,5 +106,47 @@ class PortfolioRunnerTests(unittest.TestCase):
                 self.assertEqual(report.stat().st_mode & 0o777, 0o600)
 
 
+    def test_rotation_prevents_starvation_with_small_dispatch_budget(self):
+        data = valid(repositories=[
+            {"repository": f"example/repo-{n}", "workflow": "ci.yml", "ref": "main"}
+            for n in range(5)
+        ], max_dispatches=2)
+        def fake(argv):
+            if argv[1] == "api" and argv[-2:] == ["--jq", ".archived"]:
+                return subprocess.CompletedProcess(argv, 0, "false\n", "")
+            return subprocess.CompletedProcess(argv, 0, "{}\n", "")
+        config = runner.validate(data)
+        first = runner.dispatch(config, execute=True, runner=fake)
+        second = runner.dispatch(config, execute=True, runner=fake, start_index=first["next_index"])
+        third = runner.dispatch(config, execute=True, runner=fake, start_index=second["next_index"])
+        self.assertEqual(first["next_index"], 2)
+        self.assertEqual(second["next_index"], 4)
+        self.assertEqual(third["next_index"], 1)
+        self.assertEqual([x["repository"] for x in first["results"][:2]],
+                         ["example/repo-0", "example/repo-1"])
+        self.assertEqual([x["repository"] for x in second["results"][:2]],
+                         ["example/repo-2", "example/repo-3"])
+        self.assertEqual(third["results"][0]["repository"], "example/repo-4")
+
+    def test_cursor_is_private_persistent_and_config_sensitive(self):
+        config = runner.validate(valid())
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "cursor.json"
+            self.assertEqual(runner.load_cursor(state, config), 0)
+            runner.write_report(state, {"version": 1, "targets_sha256": runner.targets_hash(config),
+                                        "next_index": 0})
+            self.assertEqual(runner.load_cursor(state, config), 0)
+            changed = runner.validate(valid(repositories=[
+                {"repository": "example/another", "workflow": "ci.yml", "ref": "main"}
+            ]))
+            self.assertEqual(runner.load_cursor(state, changed), 0)
+            runner.write_report(state, {"version": 1, "targets_sha256": runner.targets_hash(config),
+                                        "next_index": True})
+            with self.assertRaises(runner.ConfigurationError):
+                runner.load_cursor(state, config)
+            if os.name == "posix":
+                self.assertEqual(state.stat().st_mode & 0o777, 0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

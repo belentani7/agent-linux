@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,8 +22,9 @@ from typing import Callable, Sequence
 REPO = re.compile(r"^(?![-.])[A-Za-z0-9_.-]+/(?![-.])[A-Za-z0-9_.-]+$")
 WORKFLOW = re.compile(r"^[A-Za-z0-9_.-]+\.ya?ml$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]{0,120}$")
-MAX_REPOS = 50
+MAX_REPOS = 500
 MAX_DISPATCHES = 5
+MAX_PROBES = 15  # No more than 15 remote repository lookups per iteration.
 CONFIG_MAX_BYTES = 200_000
 DEFAULT_TIMEOUT = 25
 MAX_RUNTIME_SECONDS = 600
@@ -42,7 +44,7 @@ def validate(config: object) -> dict:
         raise ConfigurationError("enabled must be true or false")
     repos = config.get("repositories")
     if not isinstance(repos, list) or len(repos) > MAX_REPOS:
-        raise ConfigurationError("repositories must be an array of at most 50 entries")
+        raise ConfigurationError("repositories must be an array of at most 500 entries")
     budget = config.get("max_dispatches", 2)
     if type(budget) is not int or not 1 <= budget <= MAX_DISPATCHES:
         raise ConfigurationError("max_dispatches must be an integer between 1 and 5")
@@ -88,14 +90,18 @@ def call_gh(args: Sequence[str], runner: Callable = command) -> bool:
         return False
 
 
-def dispatch(config: dict, execute: bool = False, runner: Callable = command) -> dict:
+def dispatch(config: dict, execute: bool = False, runner: Callable = command, start_index: int = 0) -> dict:
     """Make an auditable report; execution dispatches EXISTING workflows only."""
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     entries = []
     eligible = config["enabled"] and execute
     dispatched = 0
     deadline = time.monotonic() + MAX_RUNTIME_SECONDS
-    for item in config["repositories"]:
+    all_items = config["repositories"]
+    start_index = start_index % len(all_items) if eligible and all_items else 0
+    ordered = all_items[start_index:] + all_items[:start_index]
+    examined = 0
+    for item in ordered:
         repo, workflow, ref = (item["repository"], item["workflow"], item["ref"])
         report = {"repository": repo, "workflow": workflow, "ref": ref}
         if time.monotonic() >= deadline:
@@ -106,7 +112,10 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command) ->
             report["status"] = "dry_run"
         elif dispatched >= config["max_dispatches"]:
             report["status"] = "budget_exhausted"
+        elif examined >= MAX_PROBES:
+            report["status"] = "probe_budget_exhausted"
         else:
+            examined += 1
             # Check repository archive state before invoking anything. Nothing
             # about the response, token, or private repository is logged.
             try:
@@ -126,10 +135,33 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command) ->
                 else:
                     report["status"] = "dispatch_failed"
         entries.append(report)
+    next_index = (start_index + examined) % len(all_items) if all_items else 0
     return {"generated_at": now, "mode": "execute" if eligible else "dry_run",
             "dispatches": dispatched, "max_dispatches": config["max_dispatches"],
+            "examined": examined, "cursor_before": start_index, "cursor_after": next_index,
             "results": entries,
             "note": "Workflow dispatch is not completion, test success, deployment or publication."}
+
+
+def config_fingerprint(config: dict) -> str:
+    """A cursor only applies to the exact, ordered allowlist that created it."""
+    rows = json.dumps(config["repositories"], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rows.encode("utf-8")).hexdigest()
+
+
+def read_cursor(path: Path, config: dict) -> int:
+    try:
+        if not path.is_file() or path.stat().st_size > 4096:
+            return 0
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved.get("fingerprint") != config_fingerprint(config):
+            return 0
+        value = saved.get("next_index")
+        if type(value) is int and 0 <= value < len(config["repositories"]):
+            return value
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return 0
 
 
 def write_report(path: Path, report: dict) -> None:
@@ -153,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=Path("config/portfolio.json"))
     parser.add_argument("--output", type=Path, default=Path("reports/portfolio-run.json"))
     parser.add_argument("--execute", action="store_true", help="Dispatch existing workflows (explicit opt-in)")
+    parser.add_argument("--cursor", type=Path, help="Cursor file; default: next to --output")
     parser.add_argument("--validate", action="store_true", help="Validate config without accessing GitHub")
     args = parser.parse_args(argv)
     try:
@@ -162,8 +195,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.execute and not config["enabled"]:
             raise ConfigurationError("Execution denied: config.enabled must be true")
-        result = dispatch(config, execute=args.execute)
+        cursor_path = args.cursor or args.output.with_name("portfolio-cursor.json")
+        start_index = read_cursor(cursor_path, config) if args.execute else 0
+        result = dispatch(config, execute=args.execute, start_index=start_index)
         write_report(args.output, result)
+        if args.execute:
+            write_report(cursor_path, {"fingerprint": config_fingerprint(config),
+                                       "next_index": result["cursor_after"]})
         print(f"{result['mode']}: {len(result['results'])} targets, {result['dispatches']} workflow dispatches")
         if args.execute and any(x["status"].endswith(("failed", "unavailable")) for x in result["results"]):
             return 2

@@ -13,7 +13,12 @@ permissions:
 jobs:
   shell-check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Check Bash syntax
-        run: bash -n install.sh scripts/doctor.sh scripts/update.sh
+        run: bash -n install.sh scripts/doctor.sh scripts/update.sh scripts/install-user-timer.sh
+      - name: Run offline installer and portfolio regression tests
+        run: python3 -m unittest discover -s tests -v

@@ -1,7 +1,31 @@
-name: Build
-on: [push]
+name: Linux worker checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: |
+          bash -n install.sh
+          bash -n scripts/portfolio-cycle.sh scripts/install-portfolio-runner.sh
+          bash -n scripts/doctor.sh scripts/update.sh scripts/agent-status
+      - name: Check new runner shell scripts
+        run: |
+          if command -v shellcheck >/dev/null; then
+            shellcheck scripts/portfolio-cycle.sh scripts/install-portfolio-runner.sh
+          else
+            echo "::warning::shellcheck not present on runner"
+          fi
+      - name: Systemd unit presence
+        run: |
+          test -s systemd/belentani-portfolio.service
+          test -s systemd/belentani-portfolio.timer

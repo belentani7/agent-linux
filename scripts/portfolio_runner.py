@@ -8,14 +8,18 @@ Requires only Python 3.11+ and optional authenticated GitHub CLI.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, nullcontext
+import fcntl
 import datetime as dt
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Callable, Sequence
 
@@ -171,20 +175,45 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command, st
             "note": "Workflow dispatch is not completion, test success, deployment or publication."}
 
 
+@contextmanager
+def execution_lock(state_path: Path):
+    """Prevent overlapping explicit dispatches from reusing the same cursor."""
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise ConfigurationError("Unable to open exclusive execution lock") from error
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            raise ConfigurationError("Execution lock is not a private regular file")
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ConfigurationError("Another workflow dispatcher is already running") from error
+        yield
+    finally:
+        os.close(fd)
+
+
 def write_report(path: Path, report: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Private reports can contain private repository names. Never make world-readable.
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    # Random exclusive temp file prevents a predictable .tmp symlink overwrite.
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
             json.dump(report, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -203,12 +232,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.execute and not config["enabled"]:
             raise ConfigurationError("Execution denied: config.enabled must be true")
-        start_index = load_cursor(args.state, config) if args.execute else 0
-        result = dispatch(config, execute=args.execute, start_index=start_index)
-        write_report(args.output, result)
-        if args.execute:
-            write_report(args.state, {"version": 1, "targets_sha256": targets_hash(config),
-                                      "next_index": result["next_index"]})
+        # Dry runs never create a lock or touch the cursor. Explicit dispatch
+        # holds the lock through cursor read, remote calls and state persistence.
+        with (execution_lock(args.state) if args.execute else nullcontext()):
+            start_index = load_cursor(args.state, config) if args.execute else 0
+            result = dispatch(config, execute=args.execute, start_index=start_index)
+            if args.execute:
+                write_report(args.state, {"version": 1, "targets_sha256": targets_hash(config),
+                                          "next_index": result["next_index"]})
+            write_report(args.output, result)
         print(f"{result['mode']}: {len(result['results'])} targets, {result['dispatches']} workflow dispatches")
         if args.execute and any(x["status"].endswith(("failed", "unavailable")) for x in result["results"]):
             return 2

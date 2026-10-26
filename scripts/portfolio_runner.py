@@ -38,7 +38,7 @@ class ConfigurationError(ValueError):
 
 
 def validate(config: object) -> dict:
-    if not isinstance(config, dict) or config.get("version") != 1:
+    if not isinstance(config, dict) or type(config.get("version")) is not int or config["version"] != 1:
         raise ConfigurationError("Config must be a version 1 JSON object")
     allowed = {"version", "enabled", "repositories", "max_dispatches"}
     if set(config) - allowed:
@@ -85,6 +85,9 @@ def targets_hash(config: dict) -> str:
 
 def load_cursor(path: Path, config: dict) -> int:
     """Return a persisted index; never trust an invalid or oversized state file."""
+    # A symlink (including a dangling one) must not redirect state reads.
+    if path.is_symlink():
+        raise ConfigurationError("Rotation state must not be a symlink")
     if not path.exists():
         return 0
     if not path.is_file() or path.stat().st_size > 8192:

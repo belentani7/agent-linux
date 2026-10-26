@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import sys
 import time
 from typing import Callable, Sequence
@@ -167,8 +168,11 @@ def read_cursor(path: Path, config: dict) -> int:
 def write_report(path: Path, report: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Private reports can contain private repository names. Never make world-readable.
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    # A predictable .tmp filename can be pre-planted as a symlink and
+    # O_TRUNC would overwrite its target. mkstemp creates an exclusive 0600
+    # file in the same directory, preserving atomic replace semantics.
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)
@@ -176,8 +180,7 @@ def write_report(path: Path, report: dict) -> None:
         os.replace(tmp, path)
         os.chmod(path, 0o600)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        tmp.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

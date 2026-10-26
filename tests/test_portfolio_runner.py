@@ -144,6 +144,33 @@ class PortfolioRunnerTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["status"], "archived_or_unavailable")
         self.assertEqual(len(calls), 1)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX symlink semantics")
+    def test_write_report_does_not_follow_predictable_temp_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            victim = root / "victim.txt"
+            victim.write_text("keep private data intact", encoding="utf-8")
+            report = root / "report.json"
+            legacy_tmp = root / "report.json.tmp"
+            legacy_tmp.symlink_to(victim)
+            runner.write_report(report, {"status": "ok"})
+            self.assertEqual(victim.read_text(encoding="utf-8"), "keep private data intact")
+            self.assertEqual(json.loads(report.read_text(encoding="utf-8")), {"status": "ok"})
+            self.assertTrue(legacy_tmp.is_symlink())
+            self.assertEqual(sorted(p.name for p in root.iterdir()),
+                             ["report.json", "report.json.tmp", "victim.txt"])
+
+    def test_write_report_preserves_existing_file_on_serialization_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            report = root / "report.json"
+            runner.write_report(report, {"previous": True})
+            with self.assertRaises(TypeError):
+                runner.write_report(report, {"invalid": object()})
+            self.assertEqual(json.loads(report.read_text(encoding="utf-8")),
+                             {"previous": True})
+            self.assertEqual([p.name for p in root.iterdir()], ["report.json"])
+
     def test_restricted_report_and_offline_validation(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

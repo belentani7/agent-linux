@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "portfolio_runner.py"
 spec = importlib.util.spec_from_file_location("portfolio_runner", SOURCE)
@@ -203,6 +204,35 @@ class PortfolioRunnerTests(unittest.TestCase):
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             runner.write_report(output, {"result": "updated"})
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"result": "updated"})
+
+    def test_report_output_cannot_replace_config_cursor_or_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            state = root / "cursor.json"
+            original = json.dumps(valid(enabled=False))
+            config.write_text(original, encoding="utf-8")
+            lock = root / "cursor.json.lock"
+            for protected in (config, state, lock):
+                with self.subTest(protected=protected.name):
+                    before = protected.read_bytes() if protected.exists() else None
+                    result = runner.main(["--config", str(config), "--state", str(state),
+                                          "--output", str(protected)])
+                    self.assertEqual(result, 2)
+                    after = protected.read_bytes() if protected.exists() else None
+                    self.assertEqual(after, before)
+            alias = root / "alias.json"
+            alias.symlink_to(config)
+            self.assertEqual(runner.main(["--config", str(config), "--state", str(state),
+                                          "--output", str(alias)]), 2)
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+            self.assertTrue(alias.is_symlink())
+            # Explicit execution must reject collisions before remote dispatch.
+            config.write_text(json.dumps(valid(enabled=True)), encoding="utf-8")
+            with unittest.mock.patch.object(runner, "dispatch",
+                                            side_effect=AssertionError("Remote dispatch attempted")):
+                self.assertEqual(runner.main(["--execute", "--config", str(config),
+                                              "--state", str(state), "--output", str(lock)]), 2)
 
     def test_dry_run_does_not_create_cursor_or_lock(self):
         with tempfile.TemporaryDirectory() as folder:

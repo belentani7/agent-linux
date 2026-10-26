@@ -202,6 +202,18 @@ def execution_lock(state_path: Path):
         os.close(fd)
 
 
+def ensure_safe_report_path(config_path: Path, state_path: Path, output_path: Path) -> None:
+    """Prevent reports from replacing the configuration, cursor, or active lock."""
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    try:
+        output = output_path.resolve()
+        protected = {config_path.resolve(), state_path.resolve(), lock_path.resolve()}
+    except (OSError, RuntimeError) as error:
+        raise ConfigurationError("Unable to resolve report and state paths safely") from error
+    if output in protected:
+        raise ConfigurationError("Report output must not overlap config, rotation state, or execution lock")
+
+
 def write_report(path: Path, report: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Random exclusive temp file prevents a predictable .tmp symlink overwrite.
@@ -233,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate:
             print(f"VALID: {len(config['repositories'])} configured targets, enabled={config['enabled']}")
             return 0
+        ensure_safe_report_path(args.config, args.state, args.output)
         if args.execute and not config["enabled"]:
             raise ConfigurationError("Execution denied: config.enabled must be true")
         # Dry runs never create a lock or touch the cursor. Explicit dispatch

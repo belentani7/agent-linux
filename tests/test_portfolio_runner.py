@@ -25,6 +25,8 @@ class PortfolioRunnerTests(unittest.TestCase):
     def test_config_is_fail_closed(self):
         self.assertEqual(runner.validate(valid())["max_dispatches"], 2)
         with self.assertRaises(runner.ConfigurationError):
+            runner.validate(valid(version=True))
+        with self.assertRaises(runner.ConfigurationError):
             runner.validate(valid(enabled="yes"))
         with self.assertRaises(runner.ConfigurationError):
             runner.validate(valid(max_dispatches=500))
@@ -147,6 +149,25 @@ class PortfolioRunnerTests(unittest.TestCase):
             if os.name == "posix":
                 self.assertEqual(state.stat().st_mode & 0o777, 0o600)
 
+
+    def test_cursor_rejects_valid_and_dangling_symlinks(self):
+        config = runner.validate(valid())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "real-cursor.json"
+            target.write_text(json.dumps({
+                "version": 1,
+                "targets_sha256": runner.targets_hash(config),
+                "next_index": 0,
+            }), encoding="utf-8")
+            state = root / "cursor.json"
+            state.symlink_to(target)
+            with self.assertRaisesRegex(runner.ConfigurationError, "symlink"):
+                runner.load_cursor(state, config)
+            state.unlink()
+            state.symlink_to(root / "missing.json")
+            with self.assertRaisesRegex(runner.ConfigurationError, "symlink"):
+                runner.load_cursor(state, config)
 
     def test_execution_lock_prevents_duplicate_concurrent_dispatch(self):
         with tempfile.TemporaryDirectory() as folder:

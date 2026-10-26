@@ -148,5 +148,54 @@ class PortfolioRunnerTests(unittest.TestCase):
                 self.assertEqual(state.stat().st_mode & 0o777, 0o600)
 
 
+    def test_execution_lock_prevents_duplicate_concurrent_dispatch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "state.json"
+            with runner.execution_lock(state):
+                with self.assertRaisesRegex(runner.ConfigurationError, "already running"):
+                    with runner.execution_lock(state):
+                        pass
+            with runner.execution_lock(state):
+                pass
+            self.assertEqual((Path(folder) / "state.json.lock").stat().st_mode & 0o777, 0o600)
+
+    def test_execution_lock_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "state.json"
+            victim = Path(folder) / "victim.txt"
+            victim.write_text("unchanged", encoding="utf-8")
+            (Path(folder) / "state.json.lock").symlink_to(victim)
+            with self.assertRaises(runner.ConfigurationError):
+                with runner.execution_lock(state):
+                    pass
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+
+    def test_atomic_report_ignores_predictable_tmp_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report.json"
+            victim = Path(folder) / "victim.txt"
+            victim.write_text("unchanged", encoding="utf-8")
+            (Path(folder) / "report.json.tmp").symlink_to(victim)
+            runner.write_report(output, {"result": "ok"})
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"result": "ok"})
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            runner.write_report(output, {"result": "updated"})
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"result": "updated"})
+
+    def test_dry_run_does_not_create_cursor_or_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            output = root / "report.json"
+            state = root / "cursor.json"
+            config.write_text(json.dumps(valid(enabled=False)), encoding="utf-8")
+            self.assertEqual(runner.main(["--config", str(config), "--output", str(output),
+                                          "--state", str(state)]), 0)
+            self.assertFalse(state.exists())
+            self.assertFalse((root / "cursor.json.lock").exists())
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["dispatches"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

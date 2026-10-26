@@ -8,13 +8,18 @@ Requires only Python 3.11+ and optional authenticated GitHub CLI.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, nullcontext
+import fcntl
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Callable, Sequence
 
@@ -33,7 +38,7 @@ class ConfigurationError(ValueError):
 
 
 def validate(config: object) -> dict:
-    if not isinstance(config, dict) or config.get("version") != 1:
+    if not isinstance(config, dict) or type(config.get("version")) is not int or config["version"] != 1:
         raise ConfigurationError("Config must be a version 1 JSON object")
     allowed = {"version", "enabled", "repositories", "max_dispatches"}
     if set(config) - allowed:
@@ -72,6 +77,37 @@ def load_config(path: Path) -> dict:
     return validate(json.loads(path.read_text(encoding="utf-8")))
 
 
+def targets_hash(config: dict) -> str:
+    """Identify the ordered allowlist so changing it resets the rotation."""
+    data = json.dumps(config["repositories"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def load_cursor(path: Path, config: dict) -> int:
+    """Return a persisted index; never trust an invalid or oversized state file."""
+    # A symlink (including a dangling one) must not redirect state reads.
+    if path.is_symlink():
+        raise ConfigurationError("Rotation state must not be a symlink")
+    if not path.exists():
+        return 0
+    if not path.is_file() or path.stat().st_size > 8192:
+        raise ConfigurationError("Rotation state is invalid or too large")
+    state = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(state, dict) or set(state) != {"version", "targets_sha256", "next_index"}:
+        raise ConfigurationError("Rotation state has an invalid schema")
+    if type(state["version"]) is not int or state["version"] != 1:
+        raise ConfigurationError("Rotation state version is invalid")
+    if not isinstance(state["targets_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", state["targets_sha256"]):
+        raise ConfigurationError("Rotation state fingerprint is invalid")
+    if state["targets_sha256"] != targets_hash(config):
+        return 0
+    index = state["next_index"]
+    total = len(config["repositories"])
+    if type(index) is not int or not (0 <= index < total if total else index == 0):
+        raise ConfigurationError("Rotation cursor is out of range")
+    return index
+
+
 def command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     # NEVER shell=True; no command interpolation, script execution or API token logging.
     return subprocess.run(
@@ -88,14 +124,21 @@ def call_gh(args: Sequence[str], runner: Callable = command) -> bool:
         return False
 
 
-def dispatch(config: dict, execute: bool = False, runner: Callable = command) -> dict:
+def dispatch(config: dict, execute: bool = False, runner: Callable = command, start_index: int = 0) -> dict:
     """Make an auditable report; execution dispatches EXISTING workflows only."""
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     entries = []
     eligible = config["enabled"] and execute
     dispatched = 0
     deadline = time.monotonic() + MAX_RUNTIME_SECONDS
-    for item in config["repositories"]:
+    targets = config["repositories"]
+    total = len(targets)
+    if type(start_index) is not int or not (0 <= start_index < total if total else start_index == 0):
+        raise ConfigurationError("Invalid rotation cursor")
+    # Rotate only in real execution; previews keep the configured order.
+    ordered = targets[start_index:] + targets[:start_index] if eligible else targets
+    next_index = start_index
+    for offset, item in enumerate(ordered):
         repo, workflow, ref = (item["repository"], item["workflow"], item["ref"])
         report = {"repository": repo, "workflow": workflow, "ref": ref}
         if time.monotonic() >= deadline:
@@ -123,29 +166,69 @@ def dispatch(config: dict, execute: bool = False, runner: Callable = command) ->
                 if call_gh(["workflow", "run", workflow, "--repo", repo, "--ref", ref], runner):
                     report["status"] = "dispatched_unverified"
                     dispatched += 1
+                    # Next invocation starts after the latest successful dispatch.
+                    # Without this, a finite budget starves later repositories.
+                    next_index = (start_index + offset + 1) % total
                 else:
                     report["status"] = "dispatch_failed"
         entries.append(report)
     return {"generated_at": now, "mode": "execute" if eligible else "dry_run",
             "dispatches": dispatched, "max_dispatches": config["max_dispatches"],
-            "results": entries,
+            "next_index": next_index, "results": entries,
             "note": "Workflow dispatch is not completion, test success, deployment or publication."}
+
+
+@contextmanager
+def execution_lock(state_path: Path):
+    """Prevent overlapping explicit dispatches from reusing the same cursor."""
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise ConfigurationError("Unable to open exclusive execution lock") from error
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            raise ConfigurationError("Execution lock is not a private regular file")
+        os.fchmod(fd, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ConfigurationError("Another workflow dispatcher is already running") from error
+        yield
+    finally:
+        os.close(fd)
+
+
+def ensure_safe_report_path(config_path: Path, state_path: Path, output_path: Path) -> None:
+    """Prevent reports from replacing the configuration, cursor, or active lock."""
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    try:
+        output = output_path.resolve()
+        protected = {config_path.resolve(), state_path.resolve(), lock_path.resolve()}
+    except (OSError, RuntimeError) as error:
+        raise ConfigurationError("Unable to resolve report and state paths safely") from error
+    if output in protected:
+        raise ConfigurationError("Report output must not overlap config, rotation state, or execution lock")
 
 
 def write_report(path: Path, report: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Private reports can contain private repository names. Never make world-readable.
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    # Random exclusive temp file prevents a predictable .tmp symlink overwrite.
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
             json.dump(report, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=Path("config/portfolio.json"))
     parser.add_argument("--output", type=Path, default=Path("reports/portfolio-run.json"))
     parser.add_argument("--execute", action="store_true", help="Dispatch existing workflows (explicit opt-in)")
+    parser.add_argument("--state", type=Path, default=Path("reports/portfolio-state.json"),
+                        help="Private persisted round-robin cursor (used only with --execute)")
     parser.add_argument("--validate", action="store_true", help="Validate config without accessing GitHub")
     args = parser.parse_args(argv)
     try:
@@ -160,10 +245,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.validate:
             print(f"VALID: {len(config['repositories'])} configured targets, enabled={config['enabled']}")
             return 0
+        ensure_safe_report_path(args.config, args.state, args.output)
         if args.execute and not config["enabled"]:
             raise ConfigurationError("Execution denied: config.enabled must be true")
-        result = dispatch(config, execute=args.execute)
-        write_report(args.output, result)
+        # Dry runs never create a lock or touch the cursor. Explicit dispatch
+        # holds the lock through cursor read, remote calls and state persistence.
+        with (execution_lock(args.state) if args.execute else nullcontext()):
+            start_index = load_cursor(args.state, config) if args.execute else 0
+            result = dispatch(config, execute=args.execute, start_index=start_index)
+            if args.execute:
+                write_report(args.state, {"version": 1, "targets_sha256": targets_hash(config),
+                                          "next_index": result["next_index"]})
+            write_report(args.output, result)
         print(f"{result['mode']}: {len(result['results'])} targets, {result['dispatches']} workflow dispatches")
         if args.execute and any(x["status"].endswith(("failed", "unavailable")) for x in result["results"]):
             return 2

@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "portfolio_runner.py"
 spec = importlib.util.spec_from_file_location("portfolio_runner", SOURCE)
@@ -24,6 +25,8 @@ def valid(**overrides):
 class PortfolioRunnerTests(unittest.TestCase):
     def test_config_is_fail_closed(self):
         self.assertEqual(runner.validate(valid())["max_dispatches"], 2)
+        with self.assertRaises(runner.ConfigurationError):
+            runner.validate(valid(version=True))
         with self.assertRaises(runner.ConfigurationError):
             runner.validate(valid(enabled="yes"))
         with self.assertRaises(runner.ConfigurationError):
@@ -104,6 +107,145 @@ class PortfolioRunnerTests(unittest.TestCase):
             self.assertEqual(data["dispatches"], 0)
             if os.name == "posix":
                 self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+
+
+    def test_rotation_prevents_starvation_with_small_dispatch_budget(self):
+        data = valid(repositories=[
+            {"repository": f"example/repo-{n}", "workflow": "ci.yml", "ref": "main"}
+            for n in range(5)
+        ], max_dispatches=2)
+        def fake(argv):
+            if argv[1] == "api" and argv[-2:] == ["--jq", ".archived"]:
+                return subprocess.CompletedProcess(argv, 0, "false\n", "")
+            return subprocess.CompletedProcess(argv, 0, "{}\n", "")
+        config = runner.validate(data)
+        first = runner.dispatch(config, execute=True, runner=fake)
+        second = runner.dispatch(config, execute=True, runner=fake, start_index=first["next_index"])
+        third = runner.dispatch(config, execute=True, runner=fake, start_index=second["next_index"])
+        self.assertEqual(first["next_index"], 2)
+        self.assertEqual(second["next_index"], 4)
+        self.assertEqual(third["next_index"], 1)
+        self.assertEqual([x["repository"] for x in first["results"][:2]],
+                         ["example/repo-0", "example/repo-1"])
+        self.assertEqual([x["repository"] for x in second["results"][:2]],
+                         ["example/repo-2", "example/repo-3"])
+        self.assertEqual(third["results"][0]["repository"], "example/repo-4")
+
+    def test_cursor_is_private_persistent_and_config_sensitive(self):
+        config = runner.validate(valid())
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "cursor.json"
+            self.assertEqual(runner.load_cursor(state, config), 0)
+            runner.write_report(state, {"version": 1, "targets_sha256": runner.targets_hash(config),
+                                        "next_index": 0})
+            self.assertEqual(runner.load_cursor(state, config), 0)
+            changed = runner.validate(valid(repositories=[
+                {"repository": "example/another", "workflow": "ci.yml", "ref": "main"}
+            ]))
+            self.assertEqual(runner.load_cursor(state, changed), 0)
+            runner.write_report(state, {"version": 1, "targets_sha256": runner.targets_hash(config),
+                                        "next_index": True})
+            with self.assertRaises(runner.ConfigurationError):
+                runner.load_cursor(state, config)
+            if os.name == "posix":
+                self.assertEqual(state.stat().st_mode & 0o777, 0o600)
+
+
+    def test_cursor_rejects_valid_and_dangling_symlinks(self):
+        config = runner.validate(valid())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "real-cursor.json"
+            target.write_text(json.dumps({
+                "version": 1,
+                "targets_sha256": runner.targets_hash(config),
+                "next_index": 0,
+            }), encoding="utf-8")
+            state = root / "cursor.json"
+            state.symlink_to(target)
+            with self.assertRaisesRegex(runner.ConfigurationError, "symlink"):
+                runner.load_cursor(state, config)
+            state.unlink()
+            state.symlink_to(root / "missing.json")
+            with self.assertRaisesRegex(runner.ConfigurationError, "symlink"):
+                runner.load_cursor(state, config)
+
+    def test_execution_lock_prevents_duplicate_concurrent_dispatch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "state.json"
+            with runner.execution_lock(state):
+                with self.assertRaisesRegex(runner.ConfigurationError, "already running"):
+                    with runner.execution_lock(state):
+                        pass
+            with runner.execution_lock(state):
+                pass
+            self.assertEqual((Path(folder) / "state.json.lock").stat().st_mode & 0o777, 0o600)
+
+    def test_execution_lock_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "state.json"
+            victim = Path(folder) / "victim.txt"
+            victim.write_text("unchanged", encoding="utf-8")
+            (Path(folder) / "state.json.lock").symlink_to(victim)
+            with self.assertRaises(runner.ConfigurationError):
+                with runner.execution_lock(state):
+                    pass
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+
+    def test_atomic_report_ignores_predictable_tmp_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report.json"
+            victim = Path(folder) / "victim.txt"
+            victim.write_text("unchanged", encoding="utf-8")
+            (Path(folder) / "report.json.tmp").symlink_to(victim)
+            runner.write_report(output, {"result": "ok"})
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"result": "ok"})
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            runner.write_report(output, {"result": "updated"})
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"result": "updated"})
+
+    def test_report_output_cannot_replace_config_cursor_or_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            state = root / "cursor.json"
+            original = json.dumps(valid(enabled=False))
+            config.write_text(original, encoding="utf-8")
+            lock = root / "cursor.json.lock"
+            for protected in (config, state, lock):
+                with self.subTest(protected=protected.name):
+                    before = protected.read_bytes() if protected.exists() else None
+                    result = runner.main(["--config", str(config), "--state", str(state),
+                                          "--output", str(protected)])
+                    self.assertEqual(result, 2)
+                    after = protected.read_bytes() if protected.exists() else None
+                    self.assertEqual(after, before)
+            alias = root / "alias.json"
+            alias.symlink_to(config)
+            self.assertEqual(runner.main(["--config", str(config), "--state", str(state),
+                                          "--output", str(alias)]), 2)
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+            self.assertTrue(alias.is_symlink())
+            # Explicit execution must reject collisions before remote dispatch.
+            config.write_text(json.dumps(valid(enabled=True)), encoding="utf-8")
+            with unittest.mock.patch.object(runner, "dispatch",
+                                            side_effect=AssertionError("Remote dispatch attempted")):
+                self.assertEqual(runner.main(["--execute", "--config", str(config),
+                                              "--state", str(state), "--output", str(lock)]), 2)
+
+    def test_dry_run_does_not_create_cursor_or_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            output = root / "report.json"
+            state = root / "cursor.json"
+            config.write_text(json.dumps(valid(enabled=False)), encoding="utf-8")
+            self.assertEqual(runner.main(["--config", str(config), "--output", str(output),
+                                          "--state", str(state)]), 0)
+            self.assertFalse(state.exists())
+            self.assertFalse((root / "cursor.json.lock").exists())
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["dispatches"], 0)
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ class ConfigurationError(ValueError):
 
 
 def validate(config: object) -> dict:
-    if not isinstance(config, dict) or config.get("version") != 1:
+    if not isinstance(config, dict) or type(config.get("version")) is not int or config["version"] != 1:
         raise ConfigurationError("Config must be a version 1 JSON object")
     allowed = {"version", "enabled", "repositories", "max_dispatches"}
     if set(config) - allowed:
@@ -183,6 +183,22 @@ def write_report(path: Path, report: dict) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def ensure_distinct_paths(config_path: Path, output_path: Path, cursor_path: Path | None = None) -> None:
+    """Reject CLI output/state paths that could overwrite each other or input."""
+    paths = {"config": config_path, "output": output_path}
+    if cursor_path is not None:
+        paths["cursor"] = cursor_path
+    checked: list[tuple[str, Path, Path]] = []
+    for label, path in paths.items():
+        resolved = path.resolve(strict=False)
+        for other_label, other_path, other_resolved in checked:
+            if resolved == other_resolved or (
+                path.exists() and other_path.exists() and os.path.samefile(path, other_path)
+            ):
+                raise ConfigurationError(f"{label} and {other_label} must use distinct files")
+        checked.append((label, path, resolved))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bounded opt-in GitHub workflow dispatcher")
     parser.add_argument("--config", type=Path, default=Path("config/portfolio.json"))
@@ -199,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.execute and not config["enabled"]:
             raise ConfigurationError("Execution denied: config.enabled must be true")
         cursor_path = args.cursor or args.output.with_name("portfolio-cursor.json")
+        ensure_distinct_paths(args.config, args.output, cursor_path if args.execute else None)
         start_index = read_cursor(cursor_path, config) if args.execute else 0
         result = dispatch(config, execute=args.execute, start_index=start_index)
         write_report(args.output, result)

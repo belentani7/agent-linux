@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "portfolio_runner.py"
 spec = importlib.util.spec_from_file_location("portfolio_runner", SOURCE)
@@ -30,6 +31,40 @@ class PortfolioRunnerTests(unittest.TestCase):
             runner.validate(valid(max_dispatches=500))
         with self.assertRaises(runner.ConfigurationError):
             runner.validate({**valid(), "remote_command": "rm -rf /"})
+
+    def test_reject_boolean_or_float_config_versions(self):
+        for version in (True, 1.0, "1", None):
+            with self.subTest(version=version):
+                with self.assertRaises(runner.ConfigurationError):
+                    runner.validate(valid(version=version))
+
+    def test_cli_refuses_aliases_before_any_dispatch_or_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            report = root / "report.json"
+            cursor = root / "cursor.json"
+            original = json.dumps(valid())
+            config.write_text(original, encoding="utf-8")
+            cases = [
+                ["--output", str(config)],
+                ["--output", str(report), "--cursor", str(config), "--execute"],
+                ["--output", str(report), "--cursor", str(report), "--execute"],
+            ]
+            if os.name == "posix":
+                alias = root / "alias.json"
+                alias.symlink_to(config)
+                cases.append(["--output", str(alias)])
+                hardlink = root / "hardlink.json"
+                os.link(config, hardlink)
+                cases.append(["--output", str(hardlink)])
+            with mock.patch.object(runner, "dispatch", side_effect=AssertionError("dispatched")):
+                for args in cases:
+                    with self.subTest(args=args):
+                        self.assertEqual(runner.main(["--config", str(config), *args]), 2)
+                        self.assertEqual(config.read_text(encoding="utf-8"), original)
+                        self.assertFalse(report.exists())
+                        self.assertFalse(cursor.exists())
 
     def test_reject_injection_and_cross_repository_ambiguity(self):
         for patch in (

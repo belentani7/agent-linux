@@ -1,0 +1,13 @@
+{
+  "reviewed": "2026-10-29",
+  "components": [
+    {"category": "cpu-llm", "name": "llama.cpp", "repo": "https://github.com/ggml-org/llama.cpp", "model": "https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF", "backend": "ARM64 CPU, localhost:8080", "license_note": "Check llama.cpp and model Apache 2.0 terms"},
+    {"category": "music", "name": "ACE-Step 1.5", "repo": "https://github.com/ace-step/ACE-Step-1.5", "model": "https://huggingface.co/ACE-Step/Ace-Step1.5", "backend": "CUDA/on-demand GPU, localhost:8001", "license_note": "MIT repository; review specific model card"},
+    {"category": "voice-speech", "name": "OpenVoice V2", "repo": "https://github.com/myshell-ai/OpenVoice", "model": "https://huggingface.co/myshell-ai/OpenVoiceV2", "backend": "External app, no adapter included", "license_note": "MIT for code and released weights"},
+    {"category": "voice-singing", "name": "Applio (RVC)", "repo": "https://github.com/IAHispano/Applio", "model": "", "backend": "External app, no adapter included", "license_note": "MIT; respect rights and additional terms"},
+    {"category": "stems", "name": "Demucs", "repo": "https://github.com/facebookresearch/demucs", "model": "", "backend": "External app, no adapter included", "license_note": "MIT; upstream archived"},
+    {"category": "video", "name": "Wan 2.2 TI2V-5B", "repo": "https://github.com/Wan-Video/Wan2.2", "model": "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B", "backend": "ComfyUI API graph; 24GB GPU tier", "license_note": "Apache 2.0 model"},
+    {"category": "video-ui", "name": "ComfyUI", "repo": "https://github.com/Comfy-Org/ComfyUI", "model": "", "backend": "localhost:8188; API-format JSON workflows", "license_note": "Check custom nodes and models separately"},
+    {"category": "mcp", "name": "Python MCP SDK", "repo": "https://github.com/modelcontextprotocol/python-sdk", "model": "", "backend": "stdio over SSH", "license_note": "MIT"}
+  ]
+}

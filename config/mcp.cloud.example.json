@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "belentani-cloud": {
+      "command": "ssh",
+      "args": [
+        "-T",
+        "oracle-mcp",
+        "/home/ubuntu/agent-linux/.venv/bin/python",
+        "/home/ubuntu/agent-linux/scripts/belentani_cloud_mcp.py"
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+[Unit]
+Description=Belentani portfolio inventory (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/belentani/portfolio.env
+ExecStart=%h/.local/bin/belentani-portfolio-cycle
+TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/belentani-portfolio
+UMask=0077

@@ -1,0 +1,12 @@
+[Unit]
+Description=Belentani portfolio inventory every six hours
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 00,06,12,18:23:00
+Persistent=true
+AccuracySec=5min
+Unit=belentani-portfolio.service
+
+[Install]
+WantedBy=timers.target

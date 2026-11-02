@@ -91,7 +91,7 @@ bash scripts/install-user-timer.sh --install-dry-run  # sólo simulación
 2. No pongas tokens en `.env`, commits, imágenes ni `config/mcp.json`.
 3. Trabaja como usuario normal; `sudo` solo se utiliza durante la instalación del sistema.
 4. Revisa los permisos de Claude Code/OpenClaw antes de permitir cambios destructivos.
-5. Mantén el sistema actualizado con `sudo apt update && sudo apt full-upgrade`.
+5. Actualizaciones **opt-in**: ejecuta `bash scripts/update.sh` para previsualizar sin cambios. Solo `bash scripts/update.sh --apply` actualiza paquetes Ubuntu (sin `full-upgrade`); `--apply --with-tools` actualiza también herramientas de desarrollo. Revisa respaldos, espacio disponible y la salida antes de aplicar: **no hay rollback automático**.
 
 ## Arquitectura
 

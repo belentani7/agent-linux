@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
+# --strict reports failure when essential coding tools are missing.
 set -u
-printf '%s\n' 'Agent Linux doctor'
-printf '%s\n' '================='
+mode=""
+if [[ "$#" -gt 0 ]]; then mode="$1"; fi
+if [[ "$mode" != "" && "$mode" != "--strict" ]]; then
+  echo "Usage: doctor.sh [--strict]" >&2
+  exit 2
+fi
+missing=0
+printf '%s\n' "AGENT LINUX / DOCTOR" "===================="
+printf 'Account: %s (uid=%s)\n' "$(id -un)" "$(id -u)"
+
 check() {
-  if command -v "$1" >/dev/null 2>&1; then
-    case "$1" in
-      go) ver="$(go version 2>/dev/null)" ;;
-      *)  ver="$($1 --version 2>/dev/null | head -n1)" ;;
-    esac
-    printf 'OK   %-14s %s\n' "$1" "$ver"
+  local cmd="$1" tier="$2"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    printf 'OK       %-15s %s\n' "$cmd" "installed"
   else
-    printf 'MISS %-14s %s\n' "$1" 'instala ejecutando ./install.sh'
+    printf '%-8s %-15s %s\n' "$tier" "$cmd" "missing"
+    if [[ "$tier" == "REQUIRED" ]]; then missing=$((missing + 1)); fi
   fi
 }
-for cmd in git gh pwsh node npm python3 go rustc claude openclaw mise jq rg fzf; do check "$cmd"; done
-
-# Chromium usable: el paquete apt es snap-only; Playwright provee uno headless.
-if command -v playwright >/dev/null 2>&1 && ls "${HOME}/.cache/ms-playwright/"chromium* >/dev/null 2>&1; then
-  printf 'OK   %-14s %s\n' 'chromium' 'Playwright headless (~/.cache/ms-playwright)'
-elif command -v chromium >/dev/null 2>&1; then
-  printf 'OK   %-14s %s\n' 'chromium' "$(chromium --version 2>/dev/null | head -n1)"
-else
-  printf 'MISS %-14s %s\n' 'chromium' 'ejecuta: npx playwright install --with-deps chromium'
+for cmd in git gh git-lfs python3 node npm jq rg; do check "$cmd" REQUIRED; done
+for cmd in mise go rustc pwsh claude openclaw playwright fzf chromium; do check "$cmd" OPTIONAL; done
+printf 'Core missing: %s\n' "$missing"
+if [[ "$mode" == "--strict" && "$missing" -gt 0 ]]; then
+  echo "Strict diagnostic failed: core runtime incomplete" >&2
+  exit 1
 fi
-printf '\nConsejos:\n'
-printf '%s\n' '  gh auth status        # comprobar GitHub'
-printf '%s\n' '  claude                # login de Claude Code en primer uso'
-printf '%s\n' '  openclaw doctor       # comprobar OpenClaw'
-printf '%s\n' '  npx playwright install chromium'

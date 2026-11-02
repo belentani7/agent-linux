@@ -1,0 +1,29 @@
+{
+  "name": "Agent Linux / Rootless Core",
+  "build": {
+    "dockerfile": "../../Dockerfile.rootless",
+    "context": "../.."
+  },
+  "remoteUser": "agent",
+  "containerUser": "agent",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode-remote.remote-containers",
+        "anthropic.claude-code",
+        "eamodio.gitlens",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "postCreateCommand": "git config --global init.defaultBranch main",
+  "runArgs": [
+    "--security-opt=no-new-privileges",
+    "--cap-drop=ALL"
+  ]
+}

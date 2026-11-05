@@ -2,11 +2,11 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 import unittest.mock
+from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "portfolio_runner.py"
 spec = importlib.util.spec_from_file_location("portfolio_runner", SOURCE)

@@ -8,20 +8,20 @@ Requires only Python 3.11+ and optional authenticated GitHub CLI.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager, nullcontext
-import fcntl
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager, nullcontext
+from pathlib import Path
 
 REPO = re.compile(r"^(?![-.])[A-Za-z0-9_.-]+/(?![-.])[A-Za-z0-9_.-]+$")
 WORKFLOW = re.compile(r"^[A-Za-z0-9_.-]+\.ya?ml$")
@@ -126,7 +126,7 @@ def call_gh(args: Sequence[str], runner: Callable = command) -> bool:
 
 def dispatch(config: dict, execute: bool = False, runner: Callable = command, start_index: int = 0) -> dict:
     """Make an auditable report; execution dispatches EXISTING workflows only."""
-    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    now = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     entries = []
     eligible = config["enabled"] and execute
     dispatched = 0

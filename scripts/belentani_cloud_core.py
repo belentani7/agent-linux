@@ -5,13 +5,13 @@ SSH/Tailscale tunnels. Never point these adapters at untrusted URLs.
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
-from pathlib import Path
 import json
 import os
 import platform
 import shutil
 import urllib.request
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import urlsplit
 
 CATALOG = Path(__file__).resolve().parents[1] / "config" / "ai-stack-catalog.json"
@@ -21,7 +21,7 @@ def catalog() -> list[dict]:
     return json.loads(CATALOG.read_text(encoding="utf-8"))["components"]
 
 
-def _money(value: str | float | int, name: str) -> Decimal:
+def _money(value: str | float, name: str) -> Decimal:
     try:
         num = Decimal(str(value))
     except InvalidOperation as exc:

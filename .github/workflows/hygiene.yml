@@ -15,6 +15,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   conflict-markers:
     runs-on: ubuntu-latest
@@ -22,5 +23,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Scan conflict markers
         run: |
-          if git grep -E '^(<<<<<<< |=======$|>>>>>>> )' -- '*.:("*' ; then
+          if git grep -E '^(<<<<<<< |=======$|>>>>>>> )' -- . ; then
             echo "Marcadores de conflicto detectados"; exit 1; fi
